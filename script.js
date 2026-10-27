@@ -98,11 +98,12 @@ const LEAD_ENDPOINT = 'https://lead-relay.leestygpt.workers.dev/lead/HRBWHQU48A'
     if (!e.isIntersecting) return;
     const el = e.target, target = +el.dataset.count;
     cio.unobserve(el);
-    if (reduce) { el.textContent = target; return; }
+    const sfx = el.dataset.sfx || '';
+    if (reduce) { el.textContent = fmt(target) + sfx; return; }
     const st = performance.now() + 900, dur = 1800;
     const tick = t => {
       const p = Math.min(1, Math.max(0, (t - st) / dur));
-      el.textContent = fmt(target * ease(p));
+      el.textContent = fmt(target * ease(p)) + sfx;
       if (p < 1) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -157,34 +158,8 @@ const LEAD_ENDPOINT = 'https://lead-relay.leestygpt.workers.dev/lead/HRBWHQU48A'
   addEventListener('resize', updateFlow);
   updateFlow();
 
-  // ---------- калькулятор ----------
-  const inN = $('#inN'), inC = $('#inC'), inR = $('#inR');
-  const vN = $('#vN'), outM = $('#outM'), outY = $('#outY'), goalBar = $('#goalBar'), goalTxt = $('#goalTxt');
-  let shownM = 0, shownY = 0, anim = 0;
-  const calc = () => {
-    const n = +inN.value, c = Math.max(0, +inC.value || 0), r = Math.min(100, Math.max(0, +inR.value || 0));
-    vN.textContent = n;
-    inN.style.setProperty('--fill', ((n - 1) / 59 * 100) + '%');
-    const m = n * c * r / 100, y = m * 12;
-    const fromM = shownM, fromY = shownY, st = performance.now();
-    cancelAnimationFrame(anim);
-    const step = t => {
-      const p = reduce ? 1 : Math.min(1, (t - st) / 600);
-      shownM = fromM + (m - fromM) * ease(p);
-      shownY = fromY + (y - fromY) * ease(p);
-      outM.textContent = fmt(shownM) + ' ₽';
-      outY.textContent = fmt(shownY) + ' ₽';
-      if (p < 1) anim = requestAnimationFrame(step);
-    };
-    anim = requestAnimationFrame(step);
-    goalBar.style.transform = 'scaleX(' + Math.min(1, n / 50) + ')';
-    goalTxt.textContent = n >= 50 ? 'Это уровень нашей цели — 50 клиентов в месяц' : 'До цели в 50 клиентов в месяц — ещё ' + (50 - n);
-  };
-  [inN, inC, inR].forEach(i => i?.addEventListener('input', calc));
-  calc();
-
   // «заливка» блока дохода при скролле
-  const income = $('#income');
+  const income = $('.income');
   const flood = () => {
     if (!income) return;
     const r = income.getBoundingClientRect();
@@ -200,33 +175,87 @@ const LEAD_ENDPOINT = 'https://lead-relay.leestygpt.workers.dev/lead/HRBWHQU48A'
     if (d.open) dets.forEach(o => { if (o !== d) o.open = false; });
   }));
 
-  // ---------- форма → Cloudflare Worker → Telegram ----------
-  const form = $('#leadForm'), msg = $('#formMsg');
-  form?.addEventListener('submit', async e => {
-    e.preventDefault();
+  // ---------- маска телефона ----------
+  $$('input[type="tel"]').forEach(input => input.addEventListener('input', e => {
+    let v = e.target.value.replace(/\D/g, '');
+    if (!v) { e.target.value = ''; return; }
+    if (v.startsWith('8')) v = '7' + v.slice(1);
+    if (!v.startsWith('7')) v = '7' + v;
+    v = v.slice(0, 11);
+    let out = '+7';
+    if (v.length > 1) out += ' (' + v.slice(1, 4);
+    if (v.length >= 4) out += ') ' + v.slice(4, 7);
+    if (v.length >= 7) out += '-' + v.slice(7, 9);
+    if (v.length >= 9) out += '-' + v.slice(9, 11);
+    e.target.value = out;
+  }));
+
+  // ---------- 7 ловушек: самопроверка ----------
+  const traps = $$('#trapList input'), trapN = $('#trapN'), trapMsg = $('#trapMsg'), trapBar = $('#trapBar');
+  const score = $('.traps__score');
+  const msgs = [
+    'Отметьте пункты, которые узнали.',
+    'Пока всё неплохо, но один пункт уже может стоить денег.',
+    'Два пункта: самое время свериться с юристом.',
+    'Три пункта: ситуация требует внимания.',
+    'Четыре пункта: риск уже реальный, не откладывайте.',
+    'Пять пунктов: гайд и консультация вам нужны.',
+    'Шесть пунктов — это уже привычка, от неё стоит избавляться.',
+    'Все семь: давайте разберёмся с вашей ситуацией прямо сейчас.'
+  ];
+  const updTraps = () => {
+    const n = traps.filter(i => i.checked).length;
+    trapN.textContent = n;
+    trapMsg.textContent = msgs[n];
+    trapBar.style.transform = 'scaleX(' + n / 7 + ')';
+    score.classList.toggle('is-hot', n >= 5);
+  };
+  traps.forEach(i => i.addEventListener('change', updTraps));
+  updTraps();
+
+  // ---------- отправка форм → Cloudflare Worker → Telegram ----------
+  const send = async (form, msgEl, extra, okText, onOk) => {
     const btn = form.querySelector('button[type="submit"]');
     const label = btn.querySelector('span');
     const orig = label.textContent;
     const payload = {};
     new FormData(form).forEach((v, k) => { payload[k] = v; });
     if (payload._gotcha) return;
-    const say = (t, ok) => { msg.textContent = t; msg.className = 'form__msg ' + (ok ? 'ok' : 'err'); };
-    if (!payload.name || !payload.contact) return say('Заполните имя и контакт для связи', false);
+    const say = (t, ok) => { msgEl.textContent = t; msgEl.className = 'form__msg ' + (ok ? 'ok' : 'err'); };
+    if (!payload.name || !payload.phone || payload.phone.replace(/\D/g, '').length < 11) return say('Укажите имя и телефон полностью', false);
     if (!form.agree.checked) return say('Нужно согласие на обработку данных', false);
     delete payload.agree;
-    payload.source = 'rapid-pravo-partners';
+    Object.assign(payload, extra);
     btn.disabled = true;
     label.textContent = 'Отправляем…';
     try {
       const resp = await fetch(LEAD_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      say('Заявка отправлена. Менеджер свяжется с вами и расскажет условия.', true);
+      say(okText, true);
       form.reset();
+      onOk?.();
     } catch (err) {
       console.error(err);
       say('Не получилось отправить. Напишите нам в Telegram: @Rapid_Pravo1', false);
     } finally {
       setTimeout(() => { label.textContent = orig; btn.disabled = false; }, 2500);
     }
+  };
+
+  const form = $('#leadForm');
+  form?.addEventListener('submit', e => {
+    e.preventDefault();
+    send(form, $('#formMsg'), { source: 'rapid-pravo: консультация' }, 'Заявка отправлена. Юрист свяжется с вами.');
+  });
+
+  const magnet = $('#magnetForm');
+  magnet?.addEventListener('submit', e => {
+    e.preventDefault();
+    const n = traps.filter(i => i.checked).length;
+    send(magnet, $('#magnetMsg'), { source: 'rapid-pravo: гайд «7 ловушек»', trap_score: n + ' из 7' }, 'Готово! Гайд открыт, мы также свяжемся с вами.', () => {
+      const open = $('#magnetOpen');
+      open.hidden = false;
+      try { sessionStorage.setItem('rp_guide', '1'); } catch (_) {}
+    });
   });
 })();
