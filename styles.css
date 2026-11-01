@@ -388,7 +388,7 @@ h3 { font-size: clamp(1.05rem, .95rem + .5vw, 1.35rem); }
 
 /* стоимость */
 .priceblock__l { font-size: .875rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
-.priceblock__n { font-family: var(--display); font-weight: 500; font-size: clamp(2.6rem, 1.4rem + 5vw, 5rem); line-height: 1; color: var(--petrol); letter-spacing: -.03em; }
+.priceblock__n { font-family: var(--display); font-weight: 500; font-size: clamp(2rem, 1.2rem + 3.6vw, 3.8rem); line-height: 1.05; color: var(--petrol); letter-spacing: -.03em; }
 .priceblock__d { color: var(--muted); }
 .priceblock__list { display: grid; gap: 0; }
 .priceblock__list li { padding: 14px 0 14px 34px; border-top: 1px solid var(--line); position: relative; font-weight: 500; }

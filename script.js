@@ -98,12 +98,12 @@ const LEAD_ENDPOINT = 'https://lead-relay.leestygpt.workers.dev/lead/HRBWHQU48A'
     if (!e.isIntersecting) return;
     const el = e.target, target = +el.dataset.count;
     cio.unobserve(el);
-    const sfx = el.dataset.sfx || '';
-    if (reduce) { el.textContent = fmt(target) + sfx; return; }
+    const sfx = el.dataset.sfx || '', pre = el.dataset.pre || '';
+    if (reduce) { el.textContent = pre + fmt(target) + sfx; return; }
     const st = performance.now() + 900, dur = 1800;
     const tick = t => {
       const p = Math.min(1, Math.max(0, (t - st) / dur));
-      el.textContent = fmt(target * ease(p)) + sfx;
+      el.textContent = pre + fmt(target * ease(p)) + sfx;
       if (p < 1) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
